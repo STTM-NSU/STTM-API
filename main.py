@@ -1,0 +1,83 @@
+from datetime import datetime, timedelta
+
+from decimal import Decimal
+from fastapi import FastAPI, Query, HTTPException
+from pydantic import BaseModel
+
+from predict import get_token_map, predict_topics_for_docs
+from sttm import get_sttm_index_from_db, get_sttm_index, set_sttm_index_to_db
+from topics_tone import get_topics_tone
+from words_tone import get_words_tone
+
+from fastapi.requests import Request
+from fastapi.responses import JSONResponse
+
+app = FastAPI()
+
+
+class STTMQueryParams(BaseModel):
+    instrument_id: str
+    from_date: datetime
+    to_date: datetime
+    alpha: float
+    p_value: float
+    threshold: float
+
+    def validate_dates(self):
+        if (self.to_date - self.from_date).days < 1:
+            raise HTTPException(status_code=400, detail="'from' and 'to' must span at least one day")
+
+
+class STTMIndexResponse(BaseModel):
+    index: float
+
+
+class STTMIndexResponseError(BaseModel):
+    message: str
+    retry_after: timedelta
+
+
+@app.get("/get-index")
+async def get_index(
+        instrument_id: str = Query(...),
+        from_: datetime = Query(..., alias="from"),
+        to: datetime = Query(...),
+        alpha: float = Query(...),
+        p_value: float = Query(...),
+        threshold: float = Query(...)
+):
+    params = STTMQueryParams(
+        instrument_id=instrument_id,
+        from_date=from_,
+        to_date=to,
+        alpha=alpha,
+        p_value=p_value,
+        threshold=threshold
+    )
+    params.validate_dates()
+
+    cached = await get_sttm_index_from_db(instrument_id, from_, to, Decimal(str(alpha)),
+                                          Decimal(str(p_value)), Decimal(str(threshold)))
+    if cached:
+        return STTMIndexResponse(index=cached)
+
+    token_map = await get_token_map(from_, to, alpha)
+    words_set = {word for _, hours in token_map.items() for words in hours for word in words}
+    prediction = predict_topics_for_docs(token_map)
+    words_tone = await get_words_tone(from_, to, instrument_id, prediction.get("word_stream"), words_set, p_value)
+    topics_tone = get_topics_tone(prediction.get("topic_word_distributions"), words_tone, threshold)
+
+    sttm_index = get_sttm_index(topics_tone, prediction.get("topic_stream"))
+
+    await set_sttm_index_to_db(sttm_index, instrument_id, from_, to,
+                               Decimal(str(alpha)), Decimal(str(p_value)), Decimal(str(threshold)))
+
+    return STTMIndexResponse(index=sttm_index)
+
+
+@app.exception_handler(Exception)
+async def custom_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"message": "Internal Server Error", "retry_after": str(timedelta(hours=4))}
+    )
