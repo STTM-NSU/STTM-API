@@ -3,9 +3,9 @@ from decimal import Decimal
 from typing import List
 
 from fastapi import FastAPI, Query, HTTPException
-from pydantic import BaseModel, Field
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from predict import get_token_map, predict_topics_for_docs
 from sttm import get_sttm_index_from_db, get_sttm_index, set_sttm_index_to_db
@@ -16,7 +16,7 @@ app = FastAPI()
 
 
 class STTMQueryParams(BaseModel):
-    instrument_ids: List[str] = Field(...)
+    instrument_ids: str
     from_date: datetime
     to_date: datetime
     alpha: float
@@ -34,7 +34,7 @@ class STTMIndexResponse(BaseModel):
 
 @app.get("/get-index", response_model=STTMIndexResponse)
 async def get_index(
-        instrument_ids: List[str] = Query(...),
+        instrument_ids: str = Query(...),
         from_: datetime = Query(..., alias="from"),
         to: datetime = Query(...),
         alpha: float = Query(...),
@@ -63,7 +63,8 @@ async def get_index(
     print(f'words count {len(word_set)}')
 
     indexes = []
-    for instrument_id in instrument_ids:
+    instruments = instrument_ids.split(',')
+    for instrument_id in instruments:
         cached = await get_sttm_index_from_db(
             instrument_id, from_, to, Decimal(str(alpha)),
             Decimal(str(p_value)), Decimal(str(threshold))

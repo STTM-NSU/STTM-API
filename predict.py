@@ -1,6 +1,5 @@
 import asyncio
 import json
-import math
 from collections import defaultdict
 from datetime import datetime, timedelta
 
