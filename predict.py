@@ -101,10 +101,9 @@ def predict_topics_for_docs(tokenized_docs):
             for k, v in bow:
                 word_stream[hour][dictionary[k]] += v
         topic_word_distributions[hour] = {
-            i: lda.show_topic(i, topn=500)
+            i: lda.show_topic(i, topn=10000)
             for i in range(lda.num_topics)
         }
-
 
     return {
         "topic_stream": topic_stream,
@@ -122,7 +121,6 @@ async def main():
     p_value = 0.05
     alpha_idf = 0.05
     threshold = 0.3
-
     token_map = await get_token_map(from_date, to_date, alpha_idf)
     words_set = {word for _, hours in token_map.items() for words in hours for word in words}
     prediction = predict_topics_for_docs(token_map)
@@ -130,7 +128,8 @@ async def main():
     topics_tone = get_topics_tone(prediction.get("topic_word_distributions"), words_tone, threshold)
 
     sttm_index = get_sttm_index(topics_tone, prediction.get("topic_stream"))
-    print(1/(1+math.exp(-sttm_index/100)))
+    print(1 / (1 + math.exp(-sttm_index / 100)))
+
 
 # Запуск
 if __name__ == "__main__":

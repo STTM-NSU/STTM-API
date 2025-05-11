@@ -20,7 +20,6 @@ async def get_stocks(from_date, to_date, instrument):
                                 instrument, from_date, to_date)
 
     await close_db_pool()
-    # Преобразуем в pandas DataFrame
     df = pd.DataFrame([dict(r) for r in rows])
     return df
 

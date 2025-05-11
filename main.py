@@ -61,14 +61,19 @@ async def get_index(
     if cached:
         return STTMIndexResponse(index=cached)
 
+    print(f'start')
     token_map = await get_token_map(from_, to, alpha)
+    print(f'got token_map')
     words_set = {word for _, hours in token_map.items() for words in hours for word in words}
+    print(f'words count {len(words_set)}')
     prediction = predict_topics_for_docs(token_map)
+    print(f'got prediction')
     words_tone = await get_words_tone(from_, to, instrument_id, prediction.get("word_stream"), words_set, p_value)
+    print(f'got word tone stream')
     topics_tone = get_topics_tone(prediction.get("topic_word_distributions"), words_tone, threshold)
-
+    print(f'got topic tone stream')
     sttm_index = get_sttm_index(topics_tone, prediction.get("topic_stream"))
-
+    print(f'sttm index = {sttm_index}')
     await set_sttm_index_to_db(sttm_index, instrument_id, from_, to,
                                Decimal(str(alpha)), Decimal(str(p_value)), Decimal(str(threshold)))
 
