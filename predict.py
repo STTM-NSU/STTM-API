@@ -10,7 +10,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from db import get_db_pool, close_db_pool
 from lda import load_model
 from sttm import get_sttm_index
-from topics_tone import get_topics_tone
+from topics_tone import get_topics_tone, select_words_of_topic_word_distributions
 from words_tone import get_words_tone
 
 
@@ -114,21 +114,32 @@ def predict_topics_for_docs(tokenized_docs):
 
 async def main():
     from_date = datetime(2022, 11, 1)
-    to_date = datetime(2022, 11, 2)
+    to_date = datetime(2022, 11, 8)
 
-    instrument = "BBG004730N88"
+    instruments = ["TCS00A0ZZAC4", "BBG004730N88", "BBG008F2T3T2", "BBG004S686W0"]
+
+    arr = [float]
 
     p_value = 0.05
     alpha_idf = 0.05
     threshold = 0.3
     token_map = await get_token_map(from_date, to_date, alpha_idf)
-    words_set = {word for _, hours in token_map.items() for words in hours for word in words}
     prediction = predict_topics_for_docs(token_map)
-    words_tone = await get_words_tone(from_date, to_date, instrument, prediction.get("word_stream"), words_set, p_value)
-    topics_tone = get_topics_tone(prediction.get("topic_word_distributions"), words_tone, threshold)
-
-    sttm_index = get_sttm_index(topics_tone, prediction.get("topic_stream"))
-    print(1 / (1 + math.exp(-sttm_index / 100)))
+    # print(prediction)
+    words_set = {word for _, hours in token_map.items() for words in hours for word in words}
+    selected, word_set = select_words_of_topic_word_distributions(prediction.get("topic_word_distributions"), threshold,words_set)
+    print(len(word_set))
+    for instrument in instruments:
+        words_tone = await get_words_tone(from_date, to_date, instrument, prediction.get("word_stream"), word_set.copy(), p_value)
+        if words_tone is None:
+            arr.append(-1000000000)
+            print("err")
+            continue
+        topics_tone = get_topics_tone(selected, words_tone)
+        sttm_index = get_sttm_index(topics_tone, prediction.get("topic_stream"))
+        arr.append(sttm_index)
+        print(f'{instrument}:{sttm_index}')
+    print(arr)
 
 
 # Запуск

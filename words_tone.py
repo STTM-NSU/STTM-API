@@ -20,7 +20,9 @@ async def get_stocks(from_date, to_date, instrument):
                                 instrument, from_date, to_date)
 
     await close_db_pool()
+
     df = pd.DataFrame([dict(r) for r in rows])
+
     return df
 
 
@@ -52,7 +54,8 @@ def get_correlation(stocks, word_stream, p_value=0.05):
 
 async def get_words_tone(from_date, to_date, instrument, word_stream_lda, words_set, p_value):
     stocks = await get_stocks(from_date, to_date, instrument)
-
+    if len(stocks) == 0:
+        return None
     words_tone = defaultdict(float)
     while words_set:
         word = words_set.pop()

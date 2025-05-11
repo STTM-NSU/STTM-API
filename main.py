@@ -1,22 +1,22 @@
 from datetime import datetime, timedelta
-
 from decimal import Decimal
+from typing import List
+
 from fastapi import FastAPI, Query, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from fastapi.requests import Request
+from fastapi.responses import JSONResponse
 
 from predict import get_token_map, predict_topics_for_docs
 from sttm import get_sttm_index_from_db, get_sttm_index, set_sttm_index_to_db
-from topics_tone import get_topics_tone
+from topics_tone import get_topics_tone, select_words_of_topic_word_distributions
 from words_tone import get_words_tone
-
-from fastapi.requests import Request
-from fastapi.responses import JSONResponse
 
 app = FastAPI()
 
 
 class STTMQueryParams(BaseModel):
-    instrument_id: str
+    instrument_ids: List[str] = Field(...)
     from_date: datetime
     to_date: datetime
     alpha: float
@@ -29,17 +29,12 @@ class STTMQueryParams(BaseModel):
 
 
 class STTMIndexResponse(BaseModel):
-    index: float
+    indexes: List[float]
 
 
-class STTMIndexResponseError(BaseModel):
-    message: str
-    retry_after: timedelta
-
-
-@app.get("/get-index")
+@app.get("/get-index", response_model=STTMIndexResponse)
 async def get_index(
-        instrument_id: str = Query(...),
+        instrument_ids: List[str] = Query(...),
         from_: datetime = Query(..., alias="from"),
         to: datetime = Query(...),
         alpha: float = Query(...),
@@ -47,7 +42,7 @@ async def get_index(
         threshold: float = Query(...)
 ):
     params = STTMQueryParams(
-        instrument_id=instrument_id,
+        instrument_ids=instrument_ids,
         from_date=from_,
         to_date=to,
         alpha=alpha,
@@ -56,28 +51,48 @@ async def get_index(
     )
     params.validate_dates()
 
-    cached = await get_sttm_index_from_db(instrument_id, from_, to, Decimal(str(alpha)),
-                                          Decimal(str(p_value)), Decimal(str(threshold)))
-    if cached:
-        return STTMIndexResponse(index=cached)
-
     print(f'start')
     token_map = await get_token_map(from_, to, alpha)
     print(f'got token_map')
     words_set = {word for _, hours in token_map.items() for words in hours for word in words}
-    print(f'words count {len(words_set)}')
     prediction = predict_topics_for_docs(token_map)
     print(f'got prediction')
-    words_tone = await get_words_tone(from_, to, instrument_id, prediction.get("word_stream"), words_set, p_value)
-    print(f'got word tone stream')
-    topics_tone = get_topics_tone(prediction.get("topic_word_distributions"), words_tone, threshold)
-    print(f'got topic tone stream')
-    sttm_index = get_sttm_index(topics_tone, prediction.get("topic_stream"))
-    print(f'sttm index = {sttm_index}')
-    await set_sttm_index_to_db(sttm_index, instrument_id, from_, to,
-                               Decimal(str(alpha)), Decimal(str(p_value)), Decimal(str(threshold)))
+    selected, word_set = select_words_of_topic_word_distributions(
+        prediction.get("topic_word_distributions"), threshold, words_set
+    )
+    print(f'words count {len(word_set)}')
 
-    return STTMIndexResponse(index=sttm_index)
+    indexes = []
+    for instrument_id in instrument_ids:
+        cached = await get_sttm_index_from_db(
+            instrument_id, from_, to, Decimal(str(alpha)),
+            Decimal(str(p_value)), Decimal(str(threshold))
+        )
+        if cached:
+            indexes.append(cached)
+            print(f'{instrument_id}: index was cached = {cached}')
+            continue
+
+        words_tone = await get_words_tone(
+            from_, to, instrument_id,
+            prediction.get("word_stream"), word_set.copy(), p_value
+        )
+        if words_tone is None:
+            indexes.append(-1000000000)
+            print(f'{instrument_id}: no stocks')
+            continue
+        print(f'{instrument_id}: got word tone stream')
+        topics_tone = get_topics_tone(selected, words_tone)
+        print(f'{instrument_id}: got topic tone stream')
+        sttm_index = get_sttm_index(topics_tone, prediction.get("topic_stream"))
+        print(f'{instrument_id}: sttm index = {sttm_index}')
+        indexes.append(sttm_index)
+        await set_sttm_index_to_db(
+            sttm_index, instrument_id, from_, to,
+            Decimal(str(alpha)), Decimal(str(p_value)), Decimal(str(threshold))
+        )
+
+    return STTMIndexResponse(indexes=indexes)
 
 
 @app.exception_handler(Exception)
