@@ -1,20 +1,27 @@
-FROM python:3.12-alpine3.21
+FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV PIP_CACHE_DIR=/.cache/pip
 
-RUN apk add --no-cache gcc musl-dev libffi-dev build-base
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    build-essential \
+    libopenblas-dev \
+    libffi-dev \
+    libatlas-base-dev \
+    python3-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN apk add --no-cache openblas-dev libstdc++ && \
-    ln -s /usr/include/locale.h /usr/include/xlocale.h || true
+WORKDIR /app
 
-COPY ./ ./
+COPY . .
 
-RUN --mount=type=cache,target=/.cache/pip \
-    pip install --upgrade pip && \
+RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 EXPOSE 8000
 
-ENTRYPOINT ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
