@@ -51,6 +51,22 @@ async def get_index(
     )
     params.validate_dates()
 
+    instruments = instrument_ids.split(',')
+    indexes = [None] * len(instruments)
+    counter = len(instruments)
+
+    for idx, instrument_id in enumerate(instruments):
+        cached = await get_sttm_index_from_db(
+            instrument_id, from_, to, Decimal(str(alpha)),
+            Decimal(str(p_value)), Decimal(str(threshold))
+        )
+        if cached is not None:
+            indexes[idx] = cached
+            print(f'{instrument_id}: index was cached = {cached}')
+            counter -= 1
+    if counter == 0:
+        return STTMIndexResponse(indexes=indexes)
+
     print(f'start')
     token_map = await get_token_map(from_, to, alpha)
     print(f'got token_map')
@@ -62,24 +78,15 @@ async def get_index(
     )
     print(f'words count {len(word_set)}')
 
-    indexes = []
-    instruments = instrument_ids.split(',')
-    for instrument_id in instruments:
-        cached = await get_sttm_index_from_db(
-            instrument_id, from_, to, Decimal(str(alpha)),
-            Decimal(str(p_value)), Decimal(str(threshold))
-        )
-        if cached:
-            indexes.append(cached)
-            print(f'{instrument_id}: index was cached = {cached}')
+    for idx, instrument_id in enumerate(instruments):
+        if indexes[idx] is not None:
             continue
-
         words_tone = await get_words_tone(
             from_, to, instrument_id,
             prediction.get("word_stream"), word_set.copy(), p_value
         )
         if words_tone is None:
-            indexes.append(-1000000000)
+            indexes[idx] = -1000000000
             print(f'{instrument_id}: no stocks')
             continue
         print(f'{instrument_id}: got word tone stream')
@@ -87,12 +94,11 @@ async def get_index(
         print(f'{instrument_id}: got topic tone stream')
         sttm_index = get_sttm_index(topics_tone, prediction.get("topic_stream"))
         print(f'{instrument_id}: sttm index = {sttm_index}')
-        indexes.append(sttm_index)
+        indexes[idx] = sttm_index
         await set_sttm_index_to_db(
             sttm_index, instrument_id, from_, to,
             Decimal(str(alpha)), Decimal(str(p_value)), Decimal(str(threshold))
         )
-
     return STTMIndexResponse(indexes=indexes)
 
 
