@@ -88,6 +88,10 @@ async def get_index(
         if words_tone is None:
             indexes[idx] = -1000000000
             print(f'{instrument_id}: no stocks')
+            await set_sttm_index_to_db(
+                -1000000000, instrument_id, from_, to,
+                Decimal(str(alpha)), Decimal(str(p_value)), Decimal(str(threshold))
+            )
             continue
         print(f'{instrument_id}: got word tone stream')
         topics_tone = get_topics_tone(selected, words_tone)
